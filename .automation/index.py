@@ -2,60 +2,135 @@ import os
 import glob
 import json
 import httpx
+import logging
+import chardet
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 TOP_LEVEL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AUTOMATION_DIR = os.path.dirname(os.path.abspath(__file__))
 
-DIRECTORY_LIST = [ y for y in glob.glob(os.path.join(TOP_LEVEL_DIR, '*')) if os.path.isdir(y) ]
-DIRECTORY_LIST.sort()
 
-SUB_DIRECTORY_LIST = [ y for x in DIRECTORY_LIST for y in glob.glob(os.path.join(x, '*')) if os.path.isdir(y) ]
-SUB_DIRECTORY_LIST.sort()
-# call the CTF Time API from the url in event.txt
+def fetch_event_details(event_url):
+    try:
+        api_url = event_url.replace("ctftime.org/event/", "ctftime.org/api/v1/events/")
+        r = httpx.get(api_url + "/")
+        r.raise_for_status()  # Raise an exception for non-2xx status codes
+        event_details = r.json()
+        return event_details["description"], event_details["title"]
+    except (httpx.HTTPError, json.JSONDecodeError, KeyError) as e:
+        logging.error(f"Error fetching event details: {e}")
+        return None, None
 
-with open(os.path.join(AUTOMATION_DIR, 'Change-Me/event.txt'), 'r') as f:
-    event_url = f.read()
-    # generate the api url from the event url
-    api_url = event_url.replace('ctftime.org/event/', 'ctftime.org/api/v1/events/')
 
-# get the event description from the api url
-r = httpx.get(api_url + '/')
-event_description = r.json()['description']
-event_name = r.json()['title']
+def read_descriptions(file_path):
+    try:
+        with open(file_path, "rb") as f:
+            result = chardet.detect(f.read())
+            encoding = result["encoding"]
+        with open(file_path, "r", encoding=encoding) as f:
+            descriptions = json.load(f)
+        return descriptions
+    except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError) as e:
+        logging.error(f"Error reading descriptions file: {e}")
+        return None
 
-# Open the descriptions file and read the descriptions into a list
-with open(os.path.join(AUTOMATION_DIR, 'Read-Only/descriptions.json'), 'r') as f:
-    descriptions = json.load(f)
 
-# generate the README.md file. 
-# generate an unordered list of the directories and subdirectories in the repository. 
-# should be in the format of:
-# * [directory name](directory link)
-#   * [subdirectory name](subdirectory link)
-#   * [subdirectory name](subdirectory link)
-# and so on...
+def generate_readme(
+    event_name,
+    event_url,
+    event_description,
+    directory_list,
+    subdirectory_list,
+    descriptions,
+    output_path,
+):
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(f"# {event_name}\n\n")
+            f.write(f"{event_url}\n\n")
+            f.write("## Event Description\n\n")
+            f.write(f"{event_description}\n\n")
+            for directory in directory_list:
+                directory_name = os.path.basename(directory)
+                f.write(f"## [{directory_name}](<{directory_name}/>)\n")
+                for subdirectory in subdirectory_list:
+                    if os.path.dirname(subdirectory) == directory:
+                        subdirectory_name = os.path.basename(subdirectory)
+                        f.write(
+                            f" * #### [{subdirectory_name}](<{directory_name}/{subdirectory_name}/>)\n"
+                        )
+    except IOError as e:
+        logging.error(f"Error writing to {output_path}: {e}")
 
-with open(os.path.join(TOP_LEVEL_DIR, 'README.md'), 'w') as f:
-    f.write('# ' + event_name + '\n\n')
-    f.write(event_url + '\n\n')
-    f.write('## Event Description\n\n')
-    f.write(event_description + '\n\n')
+
+def main():
+    DIRECTORY_LIST = [
+        os.path.normpath(y)
+        for y in glob.glob(os.path.join(TOP_LEVEL_DIR, "*"))
+        if os.path.isdir(y)
+    ]
+    DIRECTORY_LIST.sort()
+
+    SUB_DIRECTORY_LIST = [
+        os.path.normpath(y)
+        for x in DIRECTORY_LIST
+        for y in glob.glob(os.path.join(x, "*"))
+        if os.path.isdir(y)
+    ]
+    SUB_DIRECTORY_LIST.sort()
+
+    event_file_path = os.path.join(AUTOMATION_DIR, "Change-Me", "event.txt")
+    descriptions_file_path = os.path.join(
+        AUTOMATION_DIR, "Read-Only", "descriptions.json"
+    )
+
+    try:
+        with open(event_file_path, "r") as f:
+            event_url = f.read().strip()
+    except FileNotFoundError:
+        logging.error(f"Event file '{event_file_path}' not found.")
+        return
+
+    event_description, event_name = fetch_event_details(event_url)
+    if event_description is None or event_name is None:
+        return
+
+    descriptions = read_descriptions(descriptions_file_path)
+    if descriptions is None:
+        return
+
+    top_level_readme_path = os.path.join(TOP_LEVEL_DIR, "README.md")
+    generate_readme(
+        event_name,
+        event_url,
+        event_description,
+        DIRECTORY_LIST,
+        SUB_DIRECTORY_LIST,
+        descriptions,
+        top_level_readme_path,
+    )
+
     for directory in DIRECTORY_LIST:
-        f.write('## [{}](<{}>)\n'.format(os.path.basename(directory), os.path.basename(directory)))
-        for subdirectory in SUB_DIRECTORY_LIST:
-            if os.path.dirname(subdirectory) == directory:
-                f.write(' * #### [{}](<{}/{}/>)\n'.format(os.path.basename(subdirectory), os.path.basename(directory), os.path.basename(subdirectory) ))
+        directory_readme_path = os.path.join(directory, "README.md")
+        with open(directory_readme_path, "w", encoding="utf-8") as f:
+            f.write(f"# {os.path.basename(directory)}\n\n")
+            f.write("### Category Description\n\n")
+            for category in descriptions["categories"]:
+                if os.path.basename(directory) in category["name"]:
+                    f.write(f"{category['details']['description']}\n\n")
+            f.write("## Challenges\n\n")
+            for subdirectory in SUB_DIRECTORY_LIST:
+                if os.path.dirname(subdirectory) == directory:
+                    f.write(
+                        f"- ### [{os.path.basename(subdirectory)}](<{os.path.basename(subdirectory)}/>)\n"
+                    )
 
-# do the same thing for the README in each directory
-for directory in DIRECTORY_LIST:
-    with open(os.path.join(directory, 'README.md'), 'w') as f:
-        f.write('# ' + os.path.basename(directory) + '\n\n')
-        # From the descriptions var, check if the directory name is contained in the category and if so, write the description to the README
-        f.write('### Category Description\n\n')
-        for category in descriptions['categories']:
-            if os.path.basename(directory) in category['name']:
-                f.write(category['details']['description'] + '\n\n')
-        f.write('## Challenges\n\n')
-        for subdirectory in SUB_DIRECTORY_LIST:
-            if os.path.dirname(subdirectory) == directory:
-                f.write('- ### [{}](<{}>)\n'.format(os.path.basename(subdirectory), os.path.basename(subdirectory)))
+    logging.info("README files generated successfully.")
+
+
+if __name__ == "__main__":
+    main()
