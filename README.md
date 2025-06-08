@@ -2,7 +2,7 @@
 
 OWASP Juice Shop is a deliberately broken web application similar to DVWA. The site is written in Node.js, Angular and Express, with a large focus on Javascript.
 
-## [Blockchain](<Blockchain/>)
+## [Broken Authentication](<Broken Authentication/>)
 ## [Crypto](<Crypto/>)
  * #### [Example](<Crypto/Example/>)
 ## [Forensics](<Forensics/>)
