@@ -1,13 +1,6 @@
-# MapleCTF 2023
+# OWASP Juice Shop 2025
 
-https://ctftime.org/event/2038
-
-## Event Description
-
-Maple Bacon's jeopardy-style MapleCTF! Featuring challenges in web, pwn, rev, crypto and more.
-
-
-Thank you to our prizes sponsors – Zellic, Trail of Bits, HackerOne, Offensive Security, and Vector35! Infrastructure sponsored by GCP.
+OWASP Juice Shop is a deliberately broken web application similar to DVWA. The site is written in Node.js, Angular and Express, with a large focus on Javascript.
 
 ## [Blockchain](<Blockchain/>)
 ## [Crypto](<Crypto/>)
